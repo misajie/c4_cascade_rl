@@ -196,3 +196,10 @@ def collect_rollouts(
 def load_config(path: Path | str) -> Dict[str, Any]:
     with open(path) as f:
         return yaml.safe_load(f)
+
+
+def build_adapter(cfg=None, stub: bool = False):
+    """Factory re-export — see c4_cascade_rl.vcworld_adapter.build_adapter."""
+    from c4_cascade_rl.vcworld_adapter import build_adapter as _build
+
+    return _build(cfg or {}, stub=stub)

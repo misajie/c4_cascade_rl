@@ -3,21 +3,48 @@
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
 GENETAK_COLS = ["cell", "drug", "gene", "y_de", "y_dir", "logfc", "fdr"]
 
+# Handbook Gate A1 train pair counts (canonical cell keys)
 OFFICIAL_TRAIN_COUNTS = {
-    "A549": 128293,
-    "K562": 102253,
-    "MCF7": 154969,
-    "PC3": 101707,
-    "VCAP": 163748,
+    "C32": 128293,
+    "HepG2C3A": 102253,
+    "HOP62": 154969,
+    "Hs766T": 101707,
+    "PANC1": 163748,
 }
+
+# Disk folder / file aliases → handbook canonical keys
+CELL_DIR_ALIASES = {
+    "C32": "C32",
+    "HepG2_C3A": "HepG2C3A",
+    "HepG2C3A": "HepG2C3A",
+    "HOP62": "HOP62",
+    "Hs_766T": "Hs766T",
+    "Hs766T": "Hs766T",
+    "PANC-1": "PANC1",
+    "PANC1": "PANC1",
+}
+
+
+def canonicalize_cell(name: str) -> str:
+    """Map folder/file alias to handbook canonical cell key."""
+    key = str(name).strip()
+    if key in CELL_DIR_ALIASES:
+        return CELL_DIR_ALIASES[key]
+    # soft normalize common separators
+    soft = key.replace("-", "").replace("_", "")
+    for alias, canon in CELL_DIR_ALIASES.items():
+        if alias.replace("-", "").replace("_", "") == soft:
+            return canon
+    return key
 
 
 def load_official_pert(path: Path | str) -> Dict[str, Any]:
@@ -41,12 +68,133 @@ def load_genetak_parquet(path: Path | str) -> pd.DataFrame:
     return df[GENETAK_COLS].copy()
 
 
+def discover_genetak_cells(genetak_root: Path | str) -> List[str]:
+    """Return disk folder names under GeneTak/ that look like cell dirs."""
+    root = Path(genetak_root)
+    gt = root / "GeneTak"
+    if not gt.is_dir():
+        return []
+    cells: List[str] = []
+    for p in sorted(gt.iterdir()):
+        if not p.is_dir():
+            continue
+        de = list(p.glob("*_DE.csv"))
+        di = list(p.glob("*_DIR.csv"))
+        if de and di:
+            cells.append(p.name)
+    return cells
+
+
+def _read_csv(path: Path) -> pd.DataFrame:
+    return pd.read_csv(path)
+
+
+def load_genetak_cell_csvs(genetak_root: Path | str, cell_folder: str) -> pd.DataFrame:
+    """Load `{cell}_DE.csv` + `{cell}_DIR.csv` and merge into GENETAK_COLS (+ split).
+
+    VCWorld DE/DIR schema (prepare.py):
+      DE:  pert,gene,label,split  (label 1=DE 0=nonDE)
+      DIR: pert,gene,label,split  (label 1=up 0=down → y_dir +1/-1)
+    """
+    root = Path(genetak_root)
+    cell_dir = root / "GeneTak" / cell_folder
+    if not cell_dir.is_dir():
+        raise FileNotFoundError(f"GeneTak cell dir missing: {cell_dir}")
+
+    de_paths = sorted(cell_dir.glob("*_DE.csv"))
+    dir_paths = sorted(cell_dir.glob("*_DIR.csv"))
+    if not de_paths or not dir_paths:
+        raise FileNotFoundError(f"Need *_DE.csv and *_DIR.csv under {cell_dir}")
+
+    de = _read_csv(de_paths[0])
+    di = _read_csv(dir_paths[0])
+    for name, df in (("DE", de), ("DIR", di)):
+        missing = [c for c in ("pert", "gene", "label", "split") if c not in df.columns]
+        if missing:
+            raise ValueError(f"{name} CSV missing columns {missing} in {cell_dir}")
+
+    de = de.rename(columns={"pert": "drug", "label": "y_de"})
+    di = di.rename(columns={"pert": "drug", "label": "y_dir_raw"})
+    di["y_dir"] = di["y_dir_raw"].map(lambda x: 1 if int(x) == 1 else -1)
+
+    merged = de.merge(
+        di[["drug", "gene", "split", "y_dir"]],
+        on=["drug", "gene", "split"],
+        how="inner",
+    )
+    canon = canonicalize_cell(cell_folder)
+    out = pd.DataFrame(
+        {
+            "cell": canon,
+            "drug": merged["drug"].astype(str),
+            "gene": merged["gene"].astype(str),
+            "y_de": merged["y_de"].astype(int),
+            "y_dir": merged["y_dir"].astype(int),
+            "logfc": merged["logfc"] if "logfc" in merged.columns else np.nan,
+            "fdr": merged["fdr"] if "fdr" in merged.columns else np.nan,
+            "split": merged["split"].astype(str),
+        }
+    )
+    return out
+
+
+def load_all_genetak_csvs(genetak_root: Path | str) -> pd.DataFrame:
+    cells = discover_genetak_cells(genetak_root)
+    if not cells:
+        raise FileNotFoundError(f"No GeneTak cells under {genetak_root}/GeneTak")
+    frames = [load_genetak_cell_csvs(genetak_root, c) for c in cells]
+    return pd.concat(frames, ignore_index=True)
+
+
+def build_official_pert_from_genetak(df: pd.DataFrame) -> Dict[str, Dict[str, List[str]]]:
+    """Build {cell: {train_drugs, test_drugs}} from merged GeneTAK frame."""
+    out: Dict[str, Dict[str, List[str]]] = {}
+    for cell, g in df.groupby("cell"):
+        train_drugs = sorted(g.loc[g["split"] == "train", "drug"].astype(str).unique().tolist())
+        test_drugs = sorted(g.loc[g["split"] == "test", "drug"].astype(str).unique().tolist())
+        out[str(cell)] = {"train_drugs": train_drugs, "test_drugs": test_drugs}
+    return out
+
+
+def write_genetak_parquets(df: pd.DataFrame, out_dir: Path | str) -> Dict[str, Path]:
+    """Write `{canonical}_{train,test}.parquet` under out_dir."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: Dict[str, Path] = {}
+    cols = GENETAK_COLS + (["split"] if "split" in df.columns else [])
+    for cell, g in df.groupby("cell"):
+        canon = canonicalize_cell(str(cell))
+        for split in ("train", "test"):
+            if "split" in g.columns:
+                sub = g[g["split"] == split]
+            else:
+                sub = g if split == "train" else g.iloc[0:0]
+            path = out_dir / f"{canon}_{split}.parquet"
+            sub2 = sub[[c for c in cols if c in sub.columns]].copy()
+            # parquet schema for consumers expects GENETAK_COLS; keep split optional
+            keep = [c for c in GENETAK_COLS if c in sub2.columns]
+            if "split" in sub2.columns:
+                keep = keep + ["split"]
+            sub2[keep].to_parquet(path, index=False)
+            written[f"{canon}_{split}"] = path
+    return written
+
+
+def gate_a1_counts_from_df(df: pd.DataFrame) -> Dict[str, int]:
+    """Count train rows per canonical cell (for Gate A1)."""
+    work = df.copy()
+    work["cell"] = work["cell"].map(canonicalize_cell)
+    if "split" in work.columns:
+        work = work[work["split"] == "train"]
+    return {str(k): int(v) for k, v in work.groupby("cell").size().items()}
+
+
 def train_counts_by_cell(df: pd.DataFrame, split_col: str = "split") -> Dict[str, int]:
     if split_col in df.columns:
         sub = df[df[split_col] == "train"]
     else:
         sub = df
-    return {str(k): int(v) for k, v in sub.groupby("cell").size().items()}
+    return {canonicalize_cell(str(k)): int(v) for k, v in sub.groupby("cell").size().items()}
 
 
 def check_a1_counts(counts: Mapping[str, int], tol: float = 0.01) -> bool:
@@ -164,6 +312,20 @@ def morgan_fingerprints_from_smiles(
                 arr[i] = 1
         fps.append(arr)
     return np.stack(fps, axis=0)
+
+
+def random_or_zero_fingerprints(
+    n: int,
+    n_bits: int = 128,
+    rng: Optional[np.random.Generator] = None,
+    use_random: bool = True,
+) -> np.ndarray:
+    """Fallback fps when SMILES/rdkit unavailable (scaffold still runnable)."""
+    rng = rng or np.random.default_rng(0)
+    if use_random:
+        return (rng.random((n, n_bits)) > 0.5).astype(np.uint8)
+    warnings.warn("Using zero fingerprints (no SMILES/rdkit); scaffold may be weak", stacklevel=2)
+    return np.zeros((n, n_bits), dtype=np.uint8)
 
 
 def build_degree_split(

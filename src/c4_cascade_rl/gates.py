@@ -6,13 +6,13 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence
 
-# Official GeneTAK train counts (Gate A1 targets, ±1%)
+# Official GeneTAK train counts (Gate A1 targets, ±1%) — handbook canonical cells
 A1_TARGETS = {
-    "A549": 128293,
-    "K562": 102253,
-    "MCF7": 154969,
-    "PC3": 101707,
-    "VCAP": 163748,
+    "C32": 128293,
+    "HepG2C3A": 102253,
+    "HOP62": 154969,
+    "Hs766T": 101707,
+    "PANC1": 163748,
 }
 A1_TOLERANCE = 0.01
 
@@ -68,6 +68,10 @@ def gate_a2(
     }
     _write_json(Path(runs_dir) / week / "gate_A2.json", payload)
     return payload
+
+
+# Alias kept for callers / docs
+gate_a2_scaffold = gate_a2
 
 
 def gate_b(

@@ -14,20 +14,9 @@ This package wraps the VCWorld CLI via an injectable adapter; it does **not** fo
 
 ## Install
 
-`torch` is **optional** (not a hard dependency). On HPC, use the site/env torch and install this package without touching it:
-
 ```bash
-# recommended on cluster (preserve existing torch)
-pip install -e ".[dev]" --no-deps
-pip install numpy pandas pyarrow pyyaml scipy scikit-learn tqdm click pytest
-
-# local / empty env only if you need a torch wheel:
-# pip install -e ".[dev,torch]"
-```
-
-```bash
-cd c4_cascade_rl
-pip install -e ".[dev]"   # does not pull torch
+cd /workspace/c4_cascade_rl
+pip install -e ".[dev]"
 # or: pip install -r requirements.txt && export PYTHONPATH=src
 ```
 
@@ -61,6 +50,22 @@ Or via CLI: `c4 week1|collect|train|eval ...`
 - Do **not** LLM-repair invalid hop lines — drop the whole trajectory.
 - Do **not** run PPO/GRPO for LLM stages (SFT + DPO only).
 - Default `k_hops=2`; drop to `k=1` only if Gate B fails.
+
+
+## HPC (SCRL SCHE Bot)
+
+Use absolute server paths via `configs/server.yaml` and the cluster venv:
+
+```bash
+source ~/venv/bin/activate
+cd ~/vcrl/c4_cascade_rl   # or /public/home/jjtianhkuhpc1/vcrl/c4_cascade_rl
+python scripts/week1_prepare.py --config configs/server.yaml --no-synthetic
+# Week2 collect with real VCWorld CLI (needs GPU for infer):
+# python scripts/collect.py --config configs/server.yaml --no-stub --n 20000
+```
+
+GeneTAK layout: `data/genetak/GeneTak/{C32,HepG2_C3A,HOP62,Hs_766T,PANC-1}/{cell}_DE.csv` + `_DIR.csv`.
+Gate A1 cells (canonical): C32, HepG2C3A, HOP62, Hs766T, PANC1.
 
 ## Tests
 

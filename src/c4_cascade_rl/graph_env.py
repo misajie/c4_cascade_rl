@@ -171,3 +171,47 @@ class GraphEnv:
 
     def edge_set_for_hall(self) -> Set:
         return set(self.graph.edges) | {(s, r, d) for s, r, d, _ in self.graph.edges}
+
+
+def load_kg_json(kg_dir: Path | str) -> Optional[GraphData]:
+    """Best-effort load of VCWorld KG from nodes/edges/graph JSON under kg_dir.
+
+    Looks for nodes.json + edges.json, or a combined graph.json.
+    Returns None if files are missing or unreadable.
+    """
+    kg_dir = Path(kg_dir)
+    graph_path = kg_dir / "graph.json"
+    nodes_path = kg_dir / "nodes.json"
+    edges_path = kg_dir / "edges.json"
+    try:
+        if graph_path.is_file():
+            return load_graph(graph_path)
+        if nodes_path.is_file() and edges_path.is_file():
+            nodes_raw = json.loads(nodes_path.read_text())
+            edges_raw = json.loads(edges_path.read_text())
+            if isinstance(nodes_raw, dict) and "nodes" in nodes_raw:
+                nodes = list(nodes_raw["nodes"])
+            elif isinstance(nodes_raw, list):
+                nodes = [str(n.get("id", n) if isinstance(n, dict) else n) for n in nodes_raw]
+            else:
+                nodes = [str(k) for k in nodes_raw]
+            edges: List[Edge] = []
+            edge_list = edges_raw["edges"] if isinstance(edges_raw, dict) and "edges" in edges_raw else edges_raw
+            for e in edge_list:
+                if isinstance(e, dict):
+                    src = str(e.get("src", e.get("source", e.get("from", ""))))
+                    rel = str(e.get("rel", e.get("relation", e.get("type", "rel"))))
+                    dst = str(e.get("dst", e.get("target", e.get("to", ""))))
+                    sign = int(e.get("sign", e.get("weight", 0)) or 0)
+                    edges.append((src, rel, dst, sign))
+                elif isinstance(e, (list, tuple)):
+                    if len(e) == 3:
+                        edges.append((str(e[0]), str(e[1]), str(e[2]), 0))
+                    else:
+                        edges.append((str(e[0]), str(e[1]), str(e[2]), int(e[3])))
+            if not nodes:
+                nodes = sorted({s for s, _, d, _ in edges} | {d for s, _, d, _ in edges})
+            return GraphData(nodes=nodes, edges=edges)
+    except Exception:
+        return None
+    return None

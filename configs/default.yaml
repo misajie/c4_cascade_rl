@@ -1,4 +1,5 @@
-# Candidate 4 cascade RL — default experiment config
+# Candidate 4 cascade RL — portable / relative-ish default config
+# For HPC absolute paths use configs/server.yaml (SCRL SCHE Bot layout).
 horizon: 6
 k_hops: 2
 alpha: 0.5
@@ -6,7 +7,8 @@ lambda_abl: 1.0
 lambda_len: 0.05
 lambda_hall: 1.0
 temps: [0.2, 0.8]
-graph_ctx: ["true", shuffle, degree, empty]
+# Quote "true" so YAML does not coerce to bool (was: ["true", shuffle, ...])
+graph_ctx: ["true", "shuffle", "degree", "empty"]
 gate_B_min_flip: 3000
 tanimoto_threshold: 0.4
 lora_rank: 16
@@ -14,7 +16,9 @@ lora_rank: 16
 paths:
   vcworld_root: /workspace/VCWorld
   genetak_root: /workspace/c4_cascade_rl/data/genetak
+  genetak_csv_subdir: GeneTak
   zenodo_graph: /workspace/c4_cascade_rl/data/graph
+  graph_kg: /workspace/c4_cascade_rl/data/graph/VCWorld/KG
   beta_model: Qwen/Qwen2.5-7B-Instruct
   buffer_dir: /workspace/c4_cascade_rl/data/buffer
   splits_dir: /workspace/c4_cascade_rl/data/splits

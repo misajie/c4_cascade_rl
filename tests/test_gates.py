@@ -26,7 +26,7 @@ def test_gate_a1_within_1pct(tmp_path):
     counts = dict(A1_TARGETS)
     assert gate_a1(counts, runs_dir=tmp_path)["pass"]
     bad = dict(counts)
-    bad["A549"] = 0
+    bad["C32"] = 0
     assert gate_a1(bad, runs_dir=tmp_path)["pass"] is False
 
 
