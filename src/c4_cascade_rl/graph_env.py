@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import random
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
@@ -173,45 +174,186 @@ class GraphEnv:
         return set(self.graph.edges) | {(s, r, d) for s, r, d, _ in self.graph.edges}
 
 
+def _node_id(n: Any) -> str:
+    if isinstance(n, dict):
+        for k in ("id", "name", "node", "label", "uid"):
+            if k in n and n[k] is not None:
+                return str(n[k])
+        raise ValueError(f"node dict missing id-like key: {n!r}")
+    return str(n)
+
+
+def _parse_edge(e: Any) -> Edge:
+    """Normalize one edge from list/tuple or common dict key aliases."""
+    if isinstance(e, dict):
+        src = e.get("src", e.get("source", e.get("from", e.get("h", e.get("head")))))
+        dst = e.get("dst", e.get("target", e.get("to", e.get("t", e.get("tail")))))
+        rel = e.get("rel", e.get("relation", e.get("type", e.get("r", e.get("edge_type", "rel")))))
+        sign_raw = e.get("sign", e.get("weight", e.get("direction", 0)))
+        if src is None or dst is None:
+            raise ValueError(f"edge dict missing source/target: {e!r}")
+        try:
+            sign = int(sign_raw) if sign_raw is not None else 0
+        except (TypeError, ValueError):
+            sign = 0
+        return (str(src), str(rel if rel is not None else "rel"), str(dst), sign)
+    if isinstance(e, (list, tuple)):
+        if len(e) < 2:
+            raise ValueError(f"edge list too short: {e!r}")
+        if len(e) == 2:
+            return (str(e[0]), "rel", str(e[1]), 0)
+        if len(e) == 3:
+            # ambiguous: (src, rel, dst) vs (src, dst, sign)
+            a, b, c = e[0], e[1], e[2]
+            if isinstance(c, (int, float)) and not isinstance(b, (int, float)):
+                return (str(a), str(b), str(c), 0)  # prefer (src,rel,dst)
+            if isinstance(b, (int, float)):
+                return (str(a), "rel", str(c), int(b))
+            return (str(a), str(b), str(c), 0)
+        return (str(e[0]), str(e[1]), str(e[2]), int(e[3]))
+    raise ValueError(f"unsupported edge type: {type(e)}")
+
+
+def _extract_nodes_edges(raw: Any) -> Tuple[List[str], List[Any]]:
+    """Pull nodes/edges containers from common KG JSON envelopes."""
+    if isinstance(raw, list):
+        # list of edges (dicts or lists)
+        return [], raw
+    if not isinstance(raw, dict):
+        raise ValueError(f"KG JSON must be list or dict, got {type(raw)}")
+
+    # Nested under data
+    if "data" in raw and isinstance(raw["data"], (dict, list)) and not (
+        "edges" in raw or "edge_list" in raw or "nodes" in raw or "node_list" in raw
+    ):
+        return _extract_nodes_edges(raw["data"])
+
+    nodes_raw = None
+    for nk in ("nodes", "node_list", "node_ids", "vertices"):
+        if nk in raw:
+            nodes_raw = raw[nk]
+            break
+
+    edges_raw = None
+    for ek in ("edges", "edge_list", "links", "triples"):
+        if ek in raw:
+            edges_raw = raw[ek]
+            break
+
+    if edges_raw is None:
+        # maybe the dict itself is {node: [...neighbors]} adjacency — not supported
+        raise ValueError(
+            "KG JSON dict missing edges/edge_list/links/triples "
+            f"(keys={list(raw.keys())[:20]})"
+        )
+
+    nodes: List[str] = []
+    if nodes_raw is None:
+        nodes = []
+    elif isinstance(nodes_raw, dict):
+        # id -> meta or id -> degree
+        nodes = [str(k) for k in nodes_raw.keys()]
+    elif isinstance(nodes_raw, list):
+        nodes = [_node_id(n) for n in nodes_raw]
+    else:
+        raise ValueError(f"unsupported nodes container: {type(nodes_raw)}")
+
+    return nodes, list(edges_raw)
+
+
+def parse_kg_payload(raw: Any) -> GraphData:
+    """Flexible KG parser for VCWorld / Zenodo / networkx-ish JSON shapes."""
+    nodes, edges_raw = _extract_nodes_edges(raw)
+    edges: List[Edge] = []
+    for e in edges_raw:
+        edges.append(_parse_edge(e))
+    if not nodes:
+        nodes = sorted({s for s, _, d, _ in edges} | {d for _, _, d, _ in edges})
+    else:
+        # ensure edge endpoints present
+        seen = set(nodes)
+        for s, _, d, _ in edges:
+            if s not in seen:
+                nodes.append(s)
+                seen.add(s)
+            if d not in seen:
+                nodes.append(d)
+                seen.add(d)
+    return GraphData(nodes=[str(n) for n in nodes], edges=edges)
+
+
 def load_kg_json(kg_dir: Path | str) -> Optional[GraphData]:
     """Best-effort load of VCWorld KG from nodes/edges/graph JSON under kg_dir.
 
-    Looks for nodes.json + edges.json, or a combined graph.json.
-    Returns None if files are missing or unreadable.
+    Inspects JSON type and supports common shapes (list of edges, nodes/edges,
+    node_list/edge_list, nested data, dict edges with source/target/h/r/t, …).
+    Falls back from graph.json to nodes.json+edges.json. Warns on failure
+    (does not silently swallow exceptions).
     """
     kg_dir = Path(kg_dir)
     graph_path = kg_dir / "graph.json"
     nodes_path = kg_dir / "nodes.json"
     edges_path = kg_dir / "edges.json"
-    try:
-        if graph_path.is_file():
-            return load_graph(graph_path)
-        if nodes_path.is_file() and edges_path.is_file():
+    errors: List[str] = []
+
+    if graph_path.is_file():
+        try:
+            raw = json.loads(graph_path.read_text())
+            # Prefer flexible parser; only use rigid load_graph when shape matches
+            if (
+                isinstance(raw, dict)
+                and "nodes" in raw
+                and "edges" in raw
+                and isinstance(raw["edges"], list)
+                and raw["edges"]
+                and isinstance(raw["edges"][0], (list, tuple))
+            ):
+                try:
+                    return load_graph(graph_path)
+                except Exception:
+                    # fall through to flexible
+                    pass
+            return parse_kg_payload(raw)
+        except Exception as exc:
+            errors.append(f"{graph_path}: {exc}")
+
+    if nodes_path.is_file() and edges_path.is_file():
+        try:
             nodes_raw = json.loads(nodes_path.read_text())
             edges_raw = json.loads(edges_path.read_text())
-            if isinstance(nodes_raw, dict) and "nodes" in nodes_raw:
-                nodes = list(nodes_raw["nodes"])
-            elif isinstance(nodes_raw, list):
-                nodes = [str(n.get("id", n) if isinstance(n, dict) else n) for n in nodes_raw]
+            # Combine into one envelope for the flexible parser
+            if isinstance(edges_raw, list):
+                envelope: Any = {"nodes": nodes_raw, "edges": edges_raw}
+            elif isinstance(edges_raw, dict):
+                envelope = dict(edges_raw)
+                if "nodes" not in envelope and "node_list" not in envelope:
+                    envelope["nodes"] = nodes_raw
+                elif nodes_raw is not None and "nodes" not in envelope:
+                    envelope["nodes"] = nodes_raw
             else:
-                nodes = [str(k) for k in nodes_raw]
-            edges: List[Edge] = []
-            edge_list = edges_raw["edges"] if isinstance(edges_raw, dict) and "edges" in edges_raw else edges_raw
-            for e in edge_list:
-                if isinstance(e, dict):
-                    src = str(e.get("src", e.get("source", e.get("from", ""))))
-                    rel = str(e.get("rel", e.get("relation", e.get("type", "rel"))))
-                    dst = str(e.get("dst", e.get("target", e.get("to", ""))))
-                    sign = int(e.get("sign", e.get("weight", 0)) or 0)
-                    edges.append((src, rel, dst, sign))
-                elif isinstance(e, (list, tuple)):
-                    if len(e) == 3:
-                        edges.append((str(e[0]), str(e[1]), str(e[2]), 0))
-                    else:
-                        edges.append((str(e[0]), str(e[1]), str(e[2]), int(e[3])))
-            if not nodes:
-                nodes = sorted({s for s, _, d, _ in edges} | {d for s, _, d, _ in edges})
-            return GraphData(nodes=nodes, edges=edges)
-    except Exception:
-        return None
+                envelope = {"nodes": nodes_raw, "edges": edges_raw}
+            # If nodes file is the nodes list and edges file is already full graph
+            if isinstance(edges_raw, dict) and (
+                "edges" in edges_raw or "edge_list" in edges_raw
+            ):
+                if "nodes" not in edges_raw and "node_list" not in edges_raw:
+                    edges_raw = dict(edges_raw)
+                    edges_raw["nodes"] = nodes_raw
+                    envelope = edges_raw
+            return parse_kg_payload(envelope)
+        except Exception as exc:
+            errors.append(f"{nodes_path}+{edges_path}: {exc}")
+
+    if errors:
+        warnings.warn(
+            "load_kg_json failed for "
+            + f"{kg_dir}: "
+            + " | ".join(errors),
+            stacklevel=2,
+        )
+    elif not graph_path.is_file() and not (nodes_path.is_file() and edges_path.is_file()):
+        warnings.warn(
+            f"load_kg_json: no graph.json or nodes.json+edges.json under {kg_dir}",
+            stacklevel=2,
+        )
     return None

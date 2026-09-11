@@ -45,6 +45,7 @@ def week1_cmd(config: str, synthetic: Optional[bool]):
         build_official_pert_from_genetak,
         discover_genetak_cells,
         gate_a1_counts_from_df,
+        genetak_load_diagnostics,
         load_all_genetak_csvs,
         random_or_zero_fingerprints,
         save_official_pert,
@@ -92,12 +93,14 @@ def week1_cmd(config: str, synthetic: Optional[bool]):
         write_genetak_parquets(df, splits_dir)
         pert = build_official_pert_from_genetak(df)
         counts = gate_a1_counts_from_df(df)
+        diag = genetak_load_diagnostics(genetak_root, df)
         save_official_pert(
             {
                 "cells": list(OFFICIAL_TRAIN_COUNTS.keys()),
                 "train_counts": counts,
                 "targets": dict(OFFICIAL_TRAIN_COUNTS),
                 "per_cell": pert,
+                "diagnostics": diag,
             },
             official,
         )
@@ -135,22 +138,26 @@ def week1_cmd(config: str, synthetic: Optional[bool]):
 
         # Degree from KG nodes/edges if present
         deg = None
+        from c4_cascade_rl.graph_env import load_kg_json
+
+        attempted_kg: list[str] = []
         kg_dir = paths.get("graph_kg")
         if kg_dir:
-            from c4_cascade_rl.graph_env import load_kg_json
-
+            attempted_kg.append(str(Path(kg_dir)))
             g = load_kg_json(kg_dir)
             if g is not None and g.node_degree:
                 deg = build_degree_split(g.node_degree, splits_dir / "degree.json")
         if deg is None:
             # also try zenodo_graph/VCWorld/KG
-            from c4_cascade_rl.graph_env import load_kg_json
-
             zg = Path(paths.get("zenodo_graph", "data/graph")) / "VCWorld" / "KG"
+            attempted_kg.append(str(zg))
             g = load_kg_json(zg)
             if g is not None and g.node_degree:
                 deg = build_degree_split(g.node_degree, splits_dir / "degree.json")
         if deg is None:
+            click.echo("KG not found; attempted paths:")
+            for p in attempted_kg:
+                click.echo(f"  - {p}")
             warnings.warn("KG not found; using synthetic degree split", stacklevel=1)
             deg = build_degree_split(
                 {f"N{i}": float(i) for i in range(40)}, splits_dir / "degree.json"
@@ -158,13 +165,28 @@ def week1_cmd(config: str, synthetic: Optional[bool]):
 
     a2 = gate_a2(sc["n_holdout"], degree_e2_ready=deg["n_e2"] > 0, runs_dir=runs, week="W1")
 
-    # Echo A1 pass/fail with per-cell got vs target
+    # Echo A1 pass/fail with per-cell got vs target (+ DE/DIR merge diagnostics)
     lines = [f"A1 pass={a1['pass']}"]
     details = a1.get("details") or a1_details_echo
+    diag_echo = {}
+    if not synthetic:
+        try:
+            diag_echo = genetak_load_diagnostics(genetak_root)
+        except Exception:
+            diag_echo = {}
     for cell, target in A1_TARGETS.items():
         d = details.get(cell, {})
         got = d.get("got")
-        lines.append(f"  {cell}: got={got} target={target} pass={d.get('pass')}")
+        extra = diag_echo.get(cell, {})
+        if extra:
+            lines.append(
+                f"  {cell}: got={got} target={target} pass={d.get('pass')} "
+                f"n_de_train={extra.get('n_de_train')} "
+                f"n_dir_train={extra.get('n_dir_train')} "
+                f"n_merged_train={extra.get('n_merged_train')}"
+            )
+        else:
+            lines.append(f"  {cell}: got={got} target={target} pass={d.get('pass')}")
     click.echo("\n".join(lines))
     click.echo(json.dumps({"A1": a1["pass"], "A2": a2["pass"], "n_holdout": sc["n_holdout"], "synthetic": synthetic}))
 

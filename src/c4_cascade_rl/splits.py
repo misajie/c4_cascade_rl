@@ -89,12 +89,27 @@ def _read_csv(path: Path) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+def count_de_train_pairs(de_df: pd.DataFrame) -> int:
+    """Count train rows in a DE (or DE-aligned) frame.
+
+    Accepts either raw DE columns (pert/label/split) or merged GENETAK columns
+    (drug/y_de/split). Gate A1 targets equal DE train row counts (incl. non-DE).
+    """
+    work = de_df
+    if "split" in work.columns:
+        work = work[work["split"].astype(str) == "train"]
+    return int(len(work))
+
+
 def load_genetak_cell_csvs(genetak_root: Path | str, cell_folder: str) -> pd.DataFrame:
     """Load `{cell}_DE.csv` + `{cell}_DIR.csv` and merge into GENETAK_COLS (+ split).
 
     VCWorld DE/DIR schema (prepare.py):
       DE:  pert,gene,label,split  (label 1=DE 0=nonDE)
       DIR: pert,gene,label,split  (label 1=up 0=down → y_dir +1/-1)
+
+    DIR only covers DE-positive genes. Merge is DE←DIR left so non-DE rows are
+    retained with y_dir=0 (Gate A1 train counts must match DE train row counts).
     """
     root = Path(genetak_root)
     cell_dir = root / "GeneTak" / cell_folder
@@ -117,11 +132,15 @@ def load_genetak_cell_csvs(genetak_root: Path | str, cell_folder: str) -> pd.Dat
     di = di.rename(columns={"pert": "drug", "label": "y_dir_raw"})
     di["y_dir"] = di["y_dir_raw"].map(lambda x: 1 if int(x) == 1 else -1)
 
+    # Left merge: keep all DE rows (incl. non-DE negatives absent from DIR).
     merged = de.merge(
         di[["drug", "gene", "split", "y_dir"]],
         on=["drug", "gene", "split"],
-        how="inner",
+        how="left",
     )
+    # Non-DE / no DIR row → y_dir=0
+    merged["y_dir"] = merged["y_dir"].fillna(0).astype(int)
+
     canon = canonicalize_cell(cell_folder)
     out = pd.DataFrame(
         {
@@ -135,6 +154,16 @@ def load_genetak_cell_csvs(genetak_root: Path | str, cell_folder: str) -> pd.Dat
             "split": merged["split"].astype(str),
         }
     )
+    # Attach per-cell load diagnostics (consumed by week1 / official_pert).
+    n_de_train = count_de_train_pairs(de)
+    n_dir_train = int((di["split"].astype(str) == "train").sum()) if "split" in di.columns else len(di)
+    n_merged_train = count_de_train_pairs(out)
+    out.attrs["load_diagnostics"] = {
+        "cell": canon,
+        "n_de_train": n_de_train,
+        "n_dir_train": n_dir_train,
+        "n_merged_train": n_merged_train,
+    }
     return out
 
 
@@ -143,7 +172,59 @@ def load_all_genetak_csvs(genetak_root: Path | str) -> pd.DataFrame:
     if not cells:
         raise FileNotFoundError(f"No GeneTak cells under {genetak_root}/GeneTak")
     frames = [load_genetak_cell_csvs(genetak_root, c) for c in cells]
-    return pd.concat(frames, ignore_index=True)
+    diagnostics = {
+        str(canonicalize_cell(c)): dict(f.attrs.get("load_diagnostics", {}))
+        for c, f in zip(cells, frames)
+    }
+    out = pd.concat(frames, ignore_index=True)
+    out.attrs["load_diagnostics"] = diagnostics
+    return out
+
+
+def genetak_load_diagnostics(
+    genetak_root: Path | str,
+    df: Optional[pd.DataFrame] = None,
+) -> Dict[str, Dict[str, int]]:
+    """Per-cell n_de_train / n_dir_train / n_merged_train for official_pert / week1.
+
+    If ``df`` was produced by ``load_all_genetak_csvs``, reuse its attrs; otherwise
+    re-read DE/DIR CSVs so diagnostics stay accurate even after concat.
+    """
+    if df is not None and isinstance(df.attrs.get("load_diagnostics"), dict) and df.attrs["load_diagnostics"]:
+        # attrs from load_all are already per-cell; from single-cell load wrap once
+        diag = df.attrs["load_diagnostics"]
+        if "n_de_train" in diag:  # single-cell shape
+            cell = str(diag.get("cell") or (df["cell"].iloc[0] if len(df) else "unknown"))
+            return {canonicalize_cell(cell): {
+                "n_de_train": int(diag["n_de_train"]),
+                "n_dir_train": int(diag["n_dir_train"]),
+                "n_merged_train": int(diag["n_merged_train"]),
+            }}
+        return {
+            canonicalize_cell(str(k)): {
+                "n_de_train": int(v.get("n_de_train", 0)),
+                "n_dir_train": int(v.get("n_dir_train", 0)),
+                "n_merged_train": int(v.get("n_merged_train", 0)),
+            }
+            for k, v in diag.items()
+        }
+
+    root = Path(genetak_root)
+    out: Dict[str, Dict[str, int]] = {}
+    for cell_folder in discover_genetak_cells(root):
+        cell_dir = root / "GeneTak" / cell_folder
+        de = _read_csv(sorted(cell_dir.glob("*_DE.csv"))[0])
+        di = _read_csv(sorted(cell_dir.glob("*_DIR.csv"))[0])
+        de_r = de.rename(columns={"pert": "drug", "label": "y_de"})
+        n_de = count_de_train_pairs(de_r)
+        n_dir = int((di["split"].astype(str) == "train").sum()) if "split" in di.columns else len(di)
+        # merged train == DE train after left join
+        out[canonicalize_cell(cell_folder)] = {
+            "n_de_train": n_de,
+            "n_dir_train": n_dir,
+            "n_merged_train": n_de,
+        }
+    return out
 
 
 def build_official_pert_from_genetak(df: pd.DataFrame) -> Dict[str, Dict[str, List[str]]]:
