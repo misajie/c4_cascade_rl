@@ -14,9 +14,20 @@ This package wraps the VCWorld CLI via an injectable adapter; it does **not** fo
 
 ## Install
 
+`torch` is **optional** (not a hard dependency). On HPC, use the site/env torch and install this package without touching it:
+
 ```bash
-cd /workspace/c4_cascade_rl
-pip install -e ".[dev]"
+# recommended on cluster (preserve existing torch)
+pip install -e ".[dev]" --no-deps
+pip install numpy pandas pyarrow pyyaml scipy scikit-learn tqdm click pytest
+
+# local / empty env only if you need a torch wheel:
+# pip install -e ".[dev,torch]"
+```
+
+```bash
+cd c4_cascade_rl
+pip install -e ".[dev]"   # does not pull torch
 # or: pip install -r requirements.txt && export PYTHONPATH=src
 ```
 
