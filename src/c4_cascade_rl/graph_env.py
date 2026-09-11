@@ -176,10 +176,19 @@ class GraphEnv:
 
 def _node_id(n: Any) -> str:
     if isinstance(n, dict):
-        for k in ("id", "name", "node", "label", "uid"):
+        for k in (
+            "id",
+            "entity_id",
+            "ensembl_id",
+            "node_index",
+            "name",
+            "node",
+            "label",
+            "uid",
+        ):
             if k in n and n[k] is not None:
                 return str(n[k])
-        raise ValueError(f"node dict missing id-like key: {n!r}")
+        raise ValueError(f"node dict missing id-like key: {list(n.keys())[:20]!r}")
     return str(n)
 
 

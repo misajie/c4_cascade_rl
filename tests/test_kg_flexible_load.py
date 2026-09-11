@@ -58,3 +58,16 @@ def test_load_kg_json_nodes_edges_fallback(tmp_path):
     assert set(g.nodes) >= {"n1", "n2"}
     assert len(g.edges) == 1
     assert g.node_degree["n1"] >= 1
+
+
+def test_node_entity_id_keys():
+    raw = {
+        "nodes": [
+            {"entity_id": "DDX1", "ensembl_id": "ENSG1", "node_index": 0},
+            {"entity_id": "TP53", "node_index": 1},
+        ],
+        "edges": [{"source": "DDX1", "target": "TP53", "relation": "regulates", "sign": 1}],
+    }
+    g = parse_kg_payload(raw)
+    assert "DDX1" in g.nodes and "TP53" in g.nodes
+    assert g.node_degree["DDX1"] >= 1
