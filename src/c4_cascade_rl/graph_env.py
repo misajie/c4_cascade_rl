@@ -195,9 +195,27 @@ def _node_id(n: Any) -> str:
 def _parse_edge(e: Any) -> Edge:
     """Normalize one edge from list/tuple or common dict key aliases."""
     if isinstance(e, dict):
-        src = e.get("src", e.get("source", e.get("from", e.get("h", e.get("head")))))
-        dst = e.get("dst", e.get("target", e.get("to", e.get("t", e.get("tail")))))
-        rel = e.get("rel", e.get("relation", e.get("type", e.get("r", e.get("edge_type", "rel")))))
+        src = e.get(
+            "src",
+            e.get(
+                "src_id",
+                e.get("source", e.get("from", e.get("h", e.get("head")))),
+            ),
+        )
+        dst = e.get(
+            "dst",
+            e.get(
+                "dst_id",
+                e.get("target", e.get("to", e.get("t", e.get("tail")))),
+            ),
+        )
+        rel = e.get(
+            "rel",
+            e.get(
+                "relation",
+                e.get("type", e.get("r", e.get("edge_type", e.get("rel_type", "rel")))),
+            ),
+        )
         sign_raw = e.get("sign", e.get("weight", e.get("direction", 0)))
         if src is None or dst is None:
             raise ValueError(f"edge dict missing source/target: {e!r}")

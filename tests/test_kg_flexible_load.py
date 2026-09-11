@@ -71,3 +71,18 @@ def test_node_entity_id_keys():
     g = parse_kg_payload(raw)
     assert "DDX1" in g.nodes and "TP53" in g.nodes
     assert g.node_degree["DDX1"] >= 1
+
+
+def test_edge_src_id_dst_id():
+    raw = {
+        "nodes": [
+            {"entity_id": "DDX1", "node_index": 0},
+            {"entity_id": "TP53", "node_index": 1},
+        ],
+        "edges": [
+            {"src_id": "DDX1", "dst_id": "TP53", "rel_type": "regulates", "src_type": "gene", "dst_type": "gene", "sign": 1}
+        ],
+    }
+    g = parse_kg_payload(raw)
+    assert len(g.edges) == 1
+    assert g.edges[0][0] == "DDX1" and g.edges[0][2] == "TP53"
