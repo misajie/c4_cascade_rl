@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+*.pyc
+data/buffer/*.parquet
+data/genetak/*
+!data/genetak/.gitkeep
+data/graph/*
+!data/graph/.gitkeep
+runs/W*/gate_*.json
+runs/W*/summary.json
+runs/W*/l5*.json
+!runs/**/.gitkeep

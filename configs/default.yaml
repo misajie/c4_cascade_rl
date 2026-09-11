@@ -1,0 +1,22 @@
+# Candidate 4 cascade RL — default experiment config
+horizon: 6
+k_hops: 2
+alpha: 0.5
+lambda_abl: 1.0
+lambda_len: 0.05
+lambda_hall: 1.0
+temps: [0.2, 0.8]
+graph_ctx: ["true", shuffle, degree, empty]
+gate_B_min_flip: 3000
+tanimoto_threshold: 0.4
+lora_rank: 16
+
+paths:
+  vcworld_root: /workspace/VCWorld
+  genetak_root: /workspace/c4_cascade_rl/data/genetak
+  zenodo_graph: /workspace/c4_cascade_rl/data/graph
+  beta_model: Qwen/Qwen2.5-7B-Instruct
+  buffer_dir: /workspace/c4_cascade_rl/data/buffer
+  splits_dir: /workspace/c4_cascade_rl/data/splits
+  runs_dir: /workspace/c4_cascade_rl/runs
+  official_pert: /workspace/c4_cascade_rl/data/splits/official_pert.json

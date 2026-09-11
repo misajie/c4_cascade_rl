@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "c4-cascade-rl"
+version = "0.1.0"
+description = "Candidate 4 cascade RL research package — hop-schema offline RL over VCWorld graphs"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "infnityjay" }]
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "pyarrow>=14.0",
+  "pyyaml>=6.0",
+  "torch>=2.0",
+  "scipy>=1.10",
+  "scikit-learn>=1.3",
+  "tqdm>=4.65",
+  "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "pytest-cov>=4.1"]
+rdkit = ["rdkit"]
+llm = ["transformers>=4.36", "peft>=0.7", "datasets>=2.14", "accelerate>=0.25"]
+
+[project.scripts]
+c4 = "c4_cascade_rl.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

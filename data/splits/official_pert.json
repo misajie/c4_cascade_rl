@@ -1,0 +1,17 @@
+{
+  "cells": [
+    "A549",
+    "K562",
+    "MCF7",
+    "PC3",
+    "VCAP"
+  ],
+  "train_counts": {
+    "A549": 128293,
+    "K562": 102253,
+    "MCF7": 154969,
+    "PC3": 101707,
+    "VCAP": 163748
+  },
+  "note": "synthetic placeholder \u2014 replace with real official_pert.json"
+}
