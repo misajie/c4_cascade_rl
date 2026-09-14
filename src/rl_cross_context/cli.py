@@ -227,6 +227,11 @@ def train_dqn_cmd(
         dry_run=dry_run,
         horizon=horizon,
         alpha=cfg.ridge_alpha,
+        eval_every=getattr(cfg, "dqn_eval_every", 25),
+        eps_start=cfg.dqn_eps_start,
+        eps_end=cfg.dqn_eps_end,
+        eps_decay=cfg.dqn_eps_decay,
+        buffer_size=cfg.dqn_buffer_size,
     )
     res["data_source"] = bundle.source
     path = out / f"dqn_report_h{horizon}.json"

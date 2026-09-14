@@ -45,3 +45,7 @@
 - VOI baseline no longer reads audit H labels
 - Double DQN is candidate-wise shared MLP; `--horizon 1|3`
 - SCHE: CPU `scripts/build_condition_deltas.py` → then `train-baselines` / `train-dqn`
+
+## RL cross-context — longer DQN + eval dump (2026-09-14)
+- `dqn_episodes: 200`, buffer 10k, eps_decay 0.995, eval_every 25
+- `dqn_report*` now includes `eval_risk_at_budget`, `eval_snapshots`, `eval_history`

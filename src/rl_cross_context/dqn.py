@@ -166,19 +166,87 @@ class DoubleDQNAgent:
         return float(loss.item())
 
 
+
+def evaluate_policy_risk_curve(
+    agent: "DoubleDQNAgent",
+    state: BaselineState,
+    queue_template: AcquisitionQueue,
+    budgets: list[int],
+    alpha: float = 1.0,
+    seed: int = 0,
+) -> dict:
+    """Greedy (eps=0) rollout; score fixed audit H after each acquire. Never trains."""
+    from .eval_curves import risk_at_budgets
+
+    rng = np.random.default_rng(seed + 999)
+    queue = queue_template.clone()
+    ep_state = BaselineState(
+        source_delta=state.source_delta,
+        target_delta=state.target_delta,
+        revealed_ids=[],
+        audit_ids=list(state.audit_ids),
+        cond_to_idx=dict(state.cond_to_idx),
+        rng=rng,
+    )
+    cand = agent.candidate_features(queue, ep_state)
+    budget = max(budgets)
+    budget_left = budget
+    g = agent.encode_global(queue, ep_state, budget_left, budget)
+    losses: list[float] = []
+    history = []
+    L_prev = None
+    ep_ret = 0.0
+    for t in range(min(budget, queue.n_remaining)):
+        a = agent.select(g, cand, queue.legal_mask, eps=0.0, rng=rng)
+        cond = queue.reveal_index(a)
+        cid = ep_state.cond_to_idx[cond]
+        ep_state.revealed_ids.append(cid)
+        pred = DeltaPredictor(alpha=alpha)
+        X, Y = build_xy_from_revealed(
+            ep_state.source_delta, ep_state.target_delta, ep_state.revealed_ids
+        )
+        pred.fit(X, Y)
+        L = pred.loss(
+            ep_state.source_delta[ep_state.audit_ids],
+            ep_state.target_delta[ep_state.audit_ids],
+        )
+        reward = 0.0 if L_prev is None else float(L_prev - L)
+        L_prev = L
+        ep_ret += reward
+        losses.append(float(L))
+        history.append({"t": t, "condition": cond, "loss": float(L), "reward": reward})
+        budget_left = budget - (t + 1)
+        g = agent.encode_global(queue, ep_state, budget_left, budget)
+    rb = risk_at_budgets(losses, budgets)
+    return {
+        "risk_at_budget": {str(k): float(v) for k, v in rb.items()},
+        "final_loss": float(losses[-1]) if losses else float("nan"),
+        "cumulative_reward": float(ep_ret),
+        "history": history,
+    }
+
+
 def train_dqn_synthetic(
     state: BaselineState,
     queue_template: AcquisitionQueue,
     budgets: list[int],
-    episodes: int = 20,
+    episodes: int = 200,
     seed: int = 0,
     hidden: int = 64,
     lr: float = 1e-3,
     dry_run: bool = False,
     horizon: int = 3,
     alpha: float = 1.0,
+    eval_every: int = 25,
+    eps_start: float = 1.0,
+    eps_end: float = 0.05,
+    eps_decay: float = 0.995,
+    buffer_size: int = 10000,
 ) -> dict:
-    """Train candidate-wise Double DQN. dry_run / no-torch → epsilon-greedy random."""
+    """Train candidate-wise Double DQN. dry_run / no-torch → epsilon-greedy random.
+
+    Also dumps greedy risk–budget eval curves periodically and at the end.
+    """
     rng = np.random.default_rng(seed)
     n_actions = len(queue_template.items)
     gene_dim = state.source_delta.shape[1]
@@ -188,11 +256,13 @@ def train_dqn_synthetic(
         hidden=hidden,
         lr=lr,
         horizon=horizon,
+        buffer_size=buffer_size,
     )
     budget = max(budgets)
-    eps = 1.0
+    eps = float(eps_start)
     episode_returns = []
     losses = []
+    eval_snapshots = []
 
     for ep in range(episodes):
         queue = queue_template.clone()
@@ -243,17 +313,42 @@ def train_dqn_synthetic(
                     losses.append(loss)
             g = g2
         episode_returns.append(ep_ret)
-        eps = max(0.05, eps * 0.95)
+        eps = max(float(eps_end), eps * float(eps_decay))
+        # periodic greedy eval on audit risk–budget (no gradient)
+        if eval_every > 0 and ((ep + 1) % eval_every == 0 or ep == 0 or ep == episodes - 1):
+            snap = evaluate_policy_risk_curve(
+                agent, state, queue_template, budgets, alpha=alpha, seed=seed + ep
+            )
+            snap["episode"] = ep + 1
+            snap["eps"] = float(eps)
+            # drop bulky step history from periodic snaps except final
+            if ep != episodes - 1:
+                snap.pop("history", None)
+            eval_snapshots.append(snap)
+
+    final_eval = evaluate_policy_risk_curve(
+        agent, state, queue_template, budgets, alpha=alpha, seed=seed + 10_000
+    )
+    final_eval["episode"] = episodes
+    final_eval["eps"] = 0.0
 
     return {
         "torch_available": TORCH_AVAILABLE,
         "dry_run": dry_run or not TORCH_AVAILABLE,
         "horizon": horizon,
+        "episodes": episodes,
+        "eval_every": eval_every,
         "episode_returns": episode_returns,
         "mean_return": float(np.mean(episode_returns)) if episode_returns else 0.0,
+        "mean_return_last20": float(np.mean(episode_returns[-20:])) if episode_returns else 0.0,
         "n_losses": len(losses),
         "last_loss": float(losses[-1]) if losses else None,
         "state_dim": agent.global_dim,
         "n_actions": n_actions,
         "cand_dim": agent.cand_dim,
+        "eval_snapshots": eval_snapshots,
+        "eval_risk_at_budget": final_eval.get("risk_at_budget"),
+        "eval_final_loss": final_eval.get("final_loss"),
+        "eval_cumulative_reward": final_eval.get("cumulative_reward"),
+        "eval_history": final_eval.get("history"),
     }

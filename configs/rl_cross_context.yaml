@@ -16,12 +16,13 @@ dqn_hidden: 64
 dqn_lr: 0.001
 dqn_gamma: 0.99
 dqn_batch_size: 32
-dqn_buffer_size: 2000
+dqn_buffer_size: 10000
 dqn_target_sync: 50
-dqn_episodes: 20
+dqn_episodes: 200
 dqn_eps_start: 1.0
 dqn_eps_end: 0.05
-dqn_eps_decay: 0.95
+dqn_eps_decay: 0.995
+dqn_eval_every: 25
 output_dir: runs/rl_cross_context
 paths:
   k562: ~/VGAE/data/replogle_k562_essential/perturb_processed.h5ad

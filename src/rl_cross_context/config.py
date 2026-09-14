@@ -24,12 +24,13 @@ class CrossContextConfig:
     dqn_lr: float = 1e-3
     dqn_gamma: float = 0.99
     dqn_batch_size: int = 32
-    dqn_buffer_size: int = 2000
+    dqn_buffer_size: int = 10000
     dqn_target_sync: int = 50
-    dqn_episodes: int = 20
+    dqn_episodes: int = 200
     dqn_eps_start: float = 1.0
     dqn_eps_end: float = 0.05
-    dqn_eps_decay: float = 0.95
+    dqn_eps_decay: float = 0.995
+    dqn_eval_every: int = 25
     n_genes: int = 32  # synthetic default
     n_conditions: int = 40  # synthetic default
     source_context: str = "k562"
