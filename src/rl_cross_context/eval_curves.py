@@ -6,6 +6,12 @@ from typing import Iterable, Sequence
 
 import numpy as np
 
+def _trapz(y, x):
+    """np.trapz on older numpy; np.trapezoid on newer."""
+    fn = getattr(np, 'trapezoid', None) or np.trapz
+    return fn(y, x)
+
+
 
 def risk_at_budgets(
     losses_by_step: Sequence[float],
@@ -39,7 +45,7 @@ def area_under_budget_curve(budgets: Sequence[int], risks: Sequence[float]) -> f
         return float(-risks[0]) if risks else 0.0
     x = np.asarray(budgets, dtype=np.float64)
     y = np.asarray(risks, dtype=np.float64)
-    return float(-np.trapezoid(y, x))
+    return float(-_trapz(y, x))
 
 
 def summarize_method_curves(
