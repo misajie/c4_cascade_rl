@@ -33,3 +33,9 @@
 3. 用户同意后再 `sbatch`；装完核对 torch 未变
 4. 出 `prepared_official` 对比表 → 丢 coding → 再决定 A1 target
 5. 用户说开监控再 `resume` 例程 `c4-day0`
+
+## RL cross-context — split (2026-09-14)
+- `runs/rl_cross_context/split_manifest.json` written from `dataset_manifest.json` (seed=0)
+- gene-stem 80/10/10 on 849 overlap conditions → train 678 / val 85 / test 85 stems
+- acquisition 339 / reference 339 / audit 42 (audit from val∪test; never in acquisition)
+- cell-level acquisition/reference indices still for SCHE CPU h5ad job

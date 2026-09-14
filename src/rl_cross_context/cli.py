@@ -15,7 +15,7 @@ from .dqn import train_dqn_synthetic
 from .eval_curves import summarize_method_curves
 from .predictor import condition_means, deltas_from_control
 from .replay import AcquisitionQueue, paired_queues
-from .splits import make_condition_splits, write_split_manifest
+from .splits import build_split_from_manifest, make_condition_splits, write_split_manifest
 
 
 def _outdir(cfg) -> Path:
@@ -65,13 +65,40 @@ def manifest_cmd(ctx: click.Context, synthetic: bool) -> None:
 
 
 @main.command("split")
+@click.option("--manifest", "manifest_path", default=None, type=click.Path(exists=True))
+@click.option("--out", "out_path", default=None, type=click.Path())
 @click.pass_context
-def split_cmd(ctx: click.Context) -> None:
+def split_cmd(ctx: click.Context, manifest_path: str | None, out_path: str | None) -> None:
     cfg = ctx.obj["cfg"]
     out = _outdir(cfg)
-    man_path = out / "dataset_manifest.json"
-    if not man_path.exists():
-        # build synthetic on the fly
+    man_path = Path(manifest_path) if manifest_path else out / "dataset_manifest.json"
+    if man_path.exists() and "condition_name_overlap" in json.loads(man_path.read_text()):
+        split = build_split_from_manifest(
+            man_path,
+            train_frac=cfg.train_frac,
+            val_frac=cfg.val_frac,
+            test_frac=cfg.test_frac,
+            acquisition_frac=cfg.acquisition_frac,
+            audit_frac=cfg.audit_frac,
+            seed=cfg.seed,
+        )
+    elif man_path.exists():
+        data = json.loads(man_path.read_text())
+        conditions = data["source"]["conditions"]
+        control = data["source"].get("control_condition", "ctrl")
+        split = make_condition_splits(
+            conditions,
+            control=control,
+            train_frac=cfg.train_frac,
+            val_frac=cfg.val_frac,
+            test_frac=cfg.test_frac,
+            acquisition_frac=cfg.acquisition_frac,
+            audit_frac=cfg.audit_frac,
+            seed=cfg.seed,
+            source_context=data["source"].get("context"),
+            target_context=(data.get("target") or {}).get("context"),
+        )
+    else:
         man, _ = build_synthetic_manifest(
             source=cfg.source_context,
             target=cfg.target_context,
@@ -79,25 +106,34 @@ def split_cmd(ctx: click.Context) -> None:
             n_genes=cfg.n_genes,
             seed=cfg.seed,
         )
-        write_manifest(man, man_path)
-        conditions = man.source.conditions
-        control = man.source.control_condition
-    else:
-        data = json.loads(man_path.read_text())
-        conditions = data["source"]["conditions"]
-        control = data["source"]["control_condition"]
-    split = make_condition_splits(
-        conditions,
-        control=control,
-        train_frac=cfg.train_frac,
-        val_frac=cfg.val_frac,
-        test_frac=cfg.test_frac,
-        acquisition_frac=cfg.acquisition_frac,
-        audit_frac=cfg.audit_frac,
-        seed=cfg.seed,
+        write_manifest(man, out / "dataset_manifest.json")
+        # synthetic names are not GENE+ctrl; still use stem splitter
+        split = make_condition_splits(
+            man.source.conditions,
+            control=man.source.control_condition,
+            train_frac=cfg.train_frac,
+            val_frac=cfg.val_frac,
+            test_frac=cfg.test_frac,
+            acquisition_frac=cfg.acquisition_frac,
+            audit_frac=cfg.audit_frac,
+            seed=cfg.seed,
+            source_context=man.source.context,
+            target_context=man.target.context,
+        )
+    dest = Path(out_path) if out_path else out / "split_manifest.json"
+    path = write_split_manifest(split, dest)
+    click.echo(
+        json.dumps(
+            {
+                "path": str(path),
+                "n_train": len(split.conditions_train),
+                "n_val": len(split.conditions_val),
+                "n_test": len(split.conditions_test),
+                "n_audit": len(split.audit_conditions),
+                "n_stems_train": len(split.gene_stems_train),
+            }
+        )
     )
-    path = write_split_manifest(split, out / "split_manifest.json")
-    click.echo(f"wrote {path}")
 
 
 def _load_state(cfg) -> tuple[BaselineState, AcquisitionQueue, list[str]]:
