@@ -12,9 +12,9 @@ from .baselines import BASELINE_REGISTRY, BaselineState, run_episode
 from .config import load_config
 from .data_manifest import build_synthetic_manifest, write_manifest
 from .dqn import train_dqn_synthetic
+from .episode_data import assert_no_audit_in_acquisition, bundle_to_state, load_episode_bundle
 from .eval_curves import summarize_method_curves
-from .predictor import condition_means, deltas_from_control
-from .replay import AcquisitionQueue, paired_queues
+from .replay import paired_queues
 from .splits import build_split_from_manifest, make_condition_splits, write_split_manifest
 
 
@@ -107,7 +107,6 @@ def split_cmd(ctx: click.Context, manifest_path: str | None, out_path: str | Non
             seed=cfg.seed,
         )
         write_manifest(man, out / "dataset_manifest.json")
-        # synthetic names are not GENE+ctrl; still use stem splitter
         split = make_condition_splits(
             man.source.conditions,
             control=man.source.control_condition,
@@ -136,58 +135,39 @@ def split_cmd(ctx: click.Context, manifest_path: str | None, out_path: str | Non
     )
 
 
-def _load_state(cfg) -> tuple[BaselineState, AcquisitionQueue, list[str]]:
+def _load_state(cfg, arrays_path: str | None = None, prefer_synthetic: bool = False):
     out = _outdir(cfg)
-    man, arrays = build_synthetic_manifest(
-        source=cfg.source_context,
-        target=cfg.target_context,
+    bundle = load_episode_bundle(
+        out,
+        seed=cfg.seed,
         n_conditions=cfg.n_conditions,
         n_genes=cfg.n_genes,
-        seed=cfg.seed,
-    )
-    conditions = arrays["conditions"]
-    control = "ctrl"
-    split = make_condition_splits(
-        conditions,
-        control=control,
+        source_context=cfg.source_context,
+        target_context=cfg.target_context,
         train_frac=cfg.train_frac,
         val_frac=cfg.val_frac,
         test_frac=cfg.test_frac,
         acquisition_frac=cfg.acquisition_frac,
         audit_frac=cfg.audit_frac,
-        seed=cfg.seed,
+        arrays_path=arrays_path,
+        prefer_synthetic=prefer_synthetic,
     )
-    write_manifest(man, out / "dataset_manifest.json")
-    write_split_manifest(split, out / "split_manifest.json")
-
-    n_cond = len(conditions)
-    src_means = condition_means(arrays["source_X"], arrays["source_cond_ids"], n_cond)
-    tgt_means = condition_means(arrays["target_X"], arrays["target_cond_ids"], n_cond)
-    src_delta = deltas_from_control(src_means, 0)
-    tgt_delta = deltas_from_control(tgt_means, 0)
-    cond_to_idx = {c: i for i, c in enumerate(conditions)}
-    audit_ids = [cond_to_idx[c] for c in split.audit_conditions]
-    queue = AcquisitionQueue.from_conditions(split.acquisition_conditions, seed=cfg.seed)
-    state = BaselineState(
-        source_delta=src_delta,
-        target_delta=tgt_delta,
-        revealed_ids=[],
-        audit_ids=audit_ids,
-        cond_to_idx=cond_to_idx,
-        rng=np.random.default_rng(cfg.seed),
-    )
-    return state, queue, split.acquisition_conditions
+    assert_no_audit_in_acquisition(bundle)
+    state, queue = bundle_to_state(bundle, seed=cfg.seed)
+    return state, queue, bundle
 
 
 @main.command("train-baselines")
+@click.option("--arrays", "arrays_path", default=None, type=click.Path(exists=True))
+@click.option("--synthetic", is_flag=True, default=False, help="Force synthetic arrays")
 @click.pass_context
-def train_baselines_cmd(ctx: click.Context) -> None:
+def train_baselines_cmd(ctx: click.Context, arrays_path: str | None, synthetic: bool) -> None:
     cfg = ctx.obj["cfg"]
     out = _outdir(cfg)
-    state, queue_tmpl, acq = _load_state(cfg)
+    state, _, bundle = _load_state(cfg, arrays_path=arrays_path, prefer_synthetic=synthetic)
     budget = max(cfg.budgets)
     names = list(BASELINE_REGISTRY.keys())
-    queues = paired_queues(acq, seed=cfg.seed, n_methods=len(names))
+    queues = paired_queues(bundle.acquisition_conditions, seed=cfg.seed, n_methods=len(names))
     histories = {}
     results = {}
     for name, q in zip(names, queues):
@@ -202,21 +182,40 @@ def train_baselines_cmd(ctx: click.Context) -> None:
         policy = BASELINE_REGISTRY[name]()
         res = run_episode(policy, q, st, budget=budget, alpha=cfg.ridge_alpha)
         histories[name] = res["history"]
-        results[name] = {"final_loss": res["final_loss"], "cumulative_reward": res["cumulative_reward"]}
+        results[name] = {
+            "final_loss": res["final_loss"],
+            "cumulative_reward": res["cumulative_reward"],
+        }
     curves = summarize_method_curves(histories, cfg.budgets)
-    payload = {"results": results, "curves": curves, "budgets": cfg.budgets}
+    payload = {
+        "results": results,
+        "curves": curves,
+        "budgets": cfg.budgets,
+        "data_source": bundle.source,
+        "n_acquisition": len(bundle.acquisition_conditions),
+        "n_audit": len(bundle.audit_ids),
+    }
     path = out / "baselines_report.json"
     path.write_text(json.dumps(payload, indent=2))
-    click.echo(f"wrote {path}")
+    click.echo(f"wrote {path} source={bundle.source}")
 
 
 @main.command("train-dqn")
-@click.option("--dry-run", is_flag=True, default=False, help="CPU synthetic; random policy if no torch opt")
+@click.option("--dry-run", is_flag=True, default=False)
+@click.option("--horizon", default=3, type=int, show_default=True, help="1=myopic; ≥3 discounted")
+@click.option("--arrays", "arrays_path", default=None, type=click.Path(exists=True))
+@click.option("--synthetic", is_flag=True, default=False)
 @click.pass_context
-def train_dqn_cmd(ctx: click.Context, dry_run: bool) -> None:
+def train_dqn_cmd(
+    ctx: click.Context,
+    dry_run: bool,
+    horizon: int,
+    arrays_path: str | None,
+    synthetic: bool,
+) -> None:
     cfg = ctx.obj["cfg"]
     out = _outdir(cfg)
-    state, queue, _ = _load_state(cfg)
+    state, queue, bundle = _load_state(cfg, arrays_path=arrays_path, prefer_synthetic=synthetic)
     res = train_dqn_synthetic(
         state,
         queue,
@@ -226,10 +225,18 @@ def train_dqn_cmd(ctx: click.Context, dry_run: bool) -> None:
         hidden=cfg.dqn_hidden,
         lr=cfg.dqn_lr,
         dry_run=dry_run,
+        horizon=horizon,
+        alpha=cfg.ridge_alpha,
     )
-    path = out / "dqn_report.json"
+    res["data_source"] = bundle.source
+    path = out / f"dqn_report_h{horizon}.json"
     path.write_text(json.dumps(res, indent=2))
-    click.echo(f"wrote {path} dry_run={res['dry_run']} torch={res['torch_available']}")
+    # also write canonical name for horizon=3
+    if horizon == 3:
+        (out / "dqn_report.json").write_text(json.dumps(res, indent=2))
+    click.echo(
+        f"wrote {path} dry_run={res['dry_run']} torch={res['torch_available']} source={bundle.source}"
+    )
 
 
 @main.command("report")
@@ -238,7 +245,13 @@ def report_cmd(ctx: click.Context) -> None:
     cfg = ctx.obj["cfg"]
     out = _outdir(cfg)
     parts = {}
-    for name in ("baselines_report.json", "dqn_report.json", "dataset_manifest.json", "split_manifest.json"):
+    for name in (
+        "baselines_report.json",
+        "dqn_report.json",
+        "dqn_report_h1.json",
+        "dataset_manifest.json",
+        "split_manifest.json",
+    ):
         p = out / name
         if p.exists():
             parts[name] = json.loads(p.read_text())

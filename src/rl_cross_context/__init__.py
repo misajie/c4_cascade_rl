@@ -12,3 +12,4 @@ __version__ = "0.1.0"
 from .config import CrossContextConfig, load_config
 
 __all__ = ["CrossContextConfig", "load_config", "__version__"]
+from . import episode_data  # noqa: F401

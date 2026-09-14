@@ -8,7 +8,7 @@ from rl_cross_context.replay import AcquisitionQueue
 from rl_cross_context.splits import make_condition_splits
 
 
-def test_dqn_dry_run_synthetic():
+def _state_queue():
     man, arrays = build_synthetic_manifest(n_conditions=10, n_genes=6, seed=0)
     conds = arrays["conditions"]
     sp = make_condition_splits(conds, seed=0, acquisition_frac=0.6)
@@ -24,12 +24,24 @@ def test_dqn_dry_run_synthetic():
         cond_to_idx=cond_to_idx,
     )
     queue = AcquisitionQueue.from_conditions(sp.acquisition_conditions, seed=0)
-    res = train_dqn_synthetic(state, queue, budgets=[2, 3], episodes=3, seed=0, dry_run=True)
+    return state, queue
+
+
+def test_dqn_dry_run_synthetic():
+    state, queue = _state_queue()
+    res = train_dqn_synthetic(state, queue, budgets=[2, 3], episodes=3, seed=0, dry_run=True, horizon=3)
     assert res["n_actions"] == len(queue.items)
     assert len(res["episode_returns"]) == 3
-    # legal mask path
-    agent = DoubleDQNAgent(state_dim=res["state_dim"], n_actions=res["n_actions"])
-    s = agent.encode_state(queue, state)
-    assert s.shape[0] == res["state_dim"]
-    # audit ids must not appear in encoded revealed at start
+    assert res["horizon"] == 3
+    agent = DoubleDQNAgent(n_actions=res["n_actions"], gene_dim=state.source_delta.shape[1])
+    g = agent.encode_global(queue, state, budget_left=3, budget_max=3)
+    cand = agent.candidate_features(queue, state)
+    assert g.shape[0] == res["state_dim"]
+    assert cand.shape == (len(queue.items), state.source_delta.shape[1])
     assert state.revealed_ids == []
+
+
+def test_dqn_horizon1_myopic_flag():
+    state, queue = _state_queue()
+    res = train_dqn_synthetic(state, queue, budgets=[2], episodes=2, seed=0, dry_run=True, horizon=1)
+    assert res["horizon"] == 1

@@ -57,21 +57,25 @@ class UncertaintyPolicy:
 
 @dataclass
 class GreedyVOIStub:
-    """Greedy value-of-information stub: maximize predicted residual on audit via source proxy."""
+    """Greedy VOI stub without reading audit H labels.
+
+    Uses residual direction on *revealed* target feedback only; falls back to
+    mean source delta among legal candidates. Policy must never score with Y_H.
+    """
 
     def select(self, queue: AcquisitionQueue, state: BaselineState) -> int:
         legal = state.legal_indices(queue)
-        # score = alignment of candidate source delta with mean audit target residual direction
-        audit = state.target_delta[state.audit_ids].mean(axis=0)
         if state.predictor is not None and len(state.revealed_ids) >= 1:
             try:
-                X_a = state.source_delta[state.audit_ids]
-                pred = state.predictor.predict(X_a)
-                resid = state.target_delta[state.audit_ids] - pred
-                audit = resid.mean(axis=0)
+                X_r = state.source_delta[state.revealed_ids]
+                pred = state.predictor.predict(X_r)
+                resid = state.target_delta[state.revealed_ids] - pred
+                direction = resid.mean(axis=0)
             except Exception:
-                pass
-        scores = state.source_delta[legal] @ audit
+                direction = state.source_delta[legal].mean(axis=0)
+        else:
+            direction = state.source_delta[legal].mean(axis=0)
+        scores = state.source_delta[legal] @ direction
         return int(legal[int(np.argmax(scores))])
 
 

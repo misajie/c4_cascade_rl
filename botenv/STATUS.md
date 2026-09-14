@@ -39,3 +39,9 @@
 - gene-stem 80/10/10 on 849 overlap conditions → train 678 / val 85 / test 85 stems
 - acquisition 339 / reference 339 / audit 42 (audit from val∪test; never in acquisition)
 - cell-level acquisition/reference indices still for SCHE CPU h5ad job
+
+## RL cross-context — baselines/DQN wiring (2026-09-14)
+- `episode_data.py`: load `condition_deltas.npz` + `split_manifest.json` (else synthetic)
+- VOI baseline no longer reads audit H labels
+- Double DQN is candidate-wise shared MLP; `--horizon 1|3`
+- SCHE: CPU `scripts/build_condition_deltas.py` → then `train-baselines` / `train-dqn`
