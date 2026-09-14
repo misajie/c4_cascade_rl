@@ -1,0 +1,184 @@
+{
+  "source_n_cells": 162751,
+  "target_n_cells": 162733,
+  "source_n_conditions": 1093,
+  "target_n_conditions": 1544,
+  "source_condition_col": "condition",
+  "target_condition_col": "condition",
+  "source_control": "ctrl",
+  "target_control": "ctrl",
+  "n_condition_overlap": 849,
+  "overlap_head": [
+    "AARS+ctrl",
+    "AATF+ctrl",
+    "ABCB7+ctrl",
+    "ABCE1+ctrl",
+    "ABCF1+ctrl",
+    "ABT1+ctrl",
+    "ACTB+ctrl",
+    "ACTR6+ctrl",
+    "ACTR8+ctrl",
+    "AHCTF1+ctrl",
+    "AKIRIN2+ctrl",
+    "ALDOA+ctrl",
+    "ALG13+ctrl",
+    "ALG2+ctrl",
+    "ANAPC2+ctrl",
+    "ANKRD11+ctrl",
+    "ARCN1+ctrl",
+    "ARGLU1+ctrl",
+    "ARIH1+ctrl",
+    "ARL2+ctrl",
+    "ARMC7+ctrl",
+    "ARPC4+ctrl",
+    "ATF5+ctrl",
+    "ATP6AP1+ctrl",
+    "ATP6V0B+ctrl",
+    "ATP6V0C+ctrl",
+    "ATP6V1A+ctrl",
+    "ATP6V1B2+ctrl",
+    "ATR+ctrl",
+    "ATRIP+ctrl"
+  ],
+  "source_obs_keys": [
+    "condition",
+    "cell_type",
+    "cov_drug_dose_name",
+    "dose_val",
+    "control",
+    "condition_name"
+  ],
+  "target_obs_keys": [
+    "condition",
+    "cell_type",
+    "cov_drug_dose_name",
+    "dose_val",
+    "control",
+    "condition_name"
+  ],
+  "source_top_conditions": [
+    [
+      "ctrl",
+      10691
+    ],
+    [
+      "NCBP2+ctrl",
+      765
+    ],
+    [
+      "SLC39A9+ctrl",
+      724
+    ],
+    [
+      "DONSON+ctrl",
+      688
+    ],
+    [
+      "GAB2+ctrl",
+      637
+    ],
+    [
+      "CHMP6+ctrl",
+      620
+    ],
+    [
+      "CPSF3+ctrl",
+      575
+    ],
+    [
+      "MED12+ctrl",
+      567
+    ],
+    [
+      "MED19+ctrl",
+      526
+    ],
+    [
+      "NRDE2+ctrl",
+      495
+    ],
+    [
+      "TSR2+ctrl",
+      486
+    ],
+    [
+      "TIMM23B+ctrl",
+      480
+    ],
+    [
+      "ORC1+ctrl",
+      477
+    ],
+    [
+      "SSRP1+ctrl",
+      473
+    ],
+    [
+      "PMPCB+ctrl",
+      471
+    ]
+  ],
+  "target_top_conditions": [
+    [
+      "ctrl",
+      11485
+    ],
+    [
+      "TFAM+ctrl",
+      3458
+    ],
+    [
+      "SLC1A5+ctrl",
+      1877
+    ],
+    [
+      "GFM1+ctrl",
+      1669
+    ],
+    [
+      "TARDBP+ctrl",
+      1603
+    ],
+    [
+      "MRPL36+ctrl",
+      1565
+    ],
+    [
+      "PPP6C+ctrl",
+      1539
+    ],
+    [
+      "MRPL35+ctrl",
+      1452
+    ],
+    [
+      "NBPF12+ctrl",
+      1159
+    ],
+    [
+      "CCDC6+ctrl",
+      1051
+    ],
+    [
+      "GTF3C4+ctrl",
+      889
+    ],
+    [
+      "MYBL2+ctrl",
+      877
+    ],
+    [
+      "FBXO42+ctrl",
+      876
+    ],
+    [
+      "HSD17B10+ctrl",
+      809
+    ],
+    [
+      "POGLUT3+ctrl",
+      768
+    ]
+  ],
+  "manifest_path": "/public/home/jjtianhkuhpc1/vcrl/c4_cascade_rl/runs/rl_cross_context/dataset_manifest.json"
+}
