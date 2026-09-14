@@ -18,37 +18,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 
+# allow `python scripts/...` without install
+_ROOT = Path(__file__).resolve().parents[1]
+_SRC = _ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
-def _means_by_condition(adata, condition_col: str, conditions: list[str], control: str):
-    import anndata as ad  # noqa: F401
-
-    obs = adata.obs[condition_col].astype(str)
-    X = adata.X
-    if hasattr(X, "toarray"):
-        # compute per-condition means without densifying all at once
-        n_genes = X.shape[1]
-        means = np.zeros((len(conditions), n_genes), dtype=np.float64)
-        for i, c in enumerate(conditions):
-            idx = np.where(obs.values == c)[0]
-            if len(idx) == 0:
-                continue
-            block = X[idx]
-            if hasattr(block, "toarray"):
-                block = block.toarray()
-            means[i] = np.asarray(block, dtype=np.float64).mean(axis=0)
-    else:
-        X = np.asarray(X, dtype=np.float64)
-        n_genes = X.shape[1]
-        means = np.zeros((len(conditions), n_genes), dtype=np.float64)
-        for i, c in enumerate(conditions):
-            mask = obs.values == c
-            if mask.any():
-                means[i] = X[mask].mean(axis=0)
-    return means
+from rl_cross_context.h5ad_means import means_by_condition  # noqa: E402
 
 
 def main() -> None:
@@ -59,13 +40,12 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--condition-col", default="condition")
     ap.add_argument("--control", default="ctrl")
-    ap.add_argument("--max-genes", type=int, default=0, help="0=all; else first N genes for smoke")
+    ap.add_argument("--max-genes", type=int, default=0, help="0=all; else unsupported for backed")
     args = ap.parse_args()
 
     import anndata as ad
 
     split = json.loads(Path(args.split).read_text())
-    # conditions = train∪val∪test∪audit∪acquisition (unique), plus control
     pools = []
     for k in (
         "conditions_train",
@@ -83,11 +63,10 @@ def main() -> None:
     src = ad.read_h5ad(args.source_h5ad, backed="r")
     tgt = ad.read_h5ad(args.target_h5ad, backed="r")
     if args.max_genes and args.max_genes > 0:
-        # backed slicing may need to_memory for gene slice — keep simple: warn
         raise SystemExit("--max-genes with backed h5ad not supported; omit for full run")
 
-    src_means = _means_by_condition(src, args.condition_col, conditions, args.control)
-    tgt_means = _means_by_condition(tgt, args.condition_col, conditions, args.control)
+    src_means = means_by_condition(src, args.condition_col, conditions)
+    tgt_means = means_by_condition(tgt, args.condition_col, conditions)
     ctrl_i = conditions.index(args.control)
     source_delta = src_means - src_means[ctrl_i]
     target_delta = tgt_means - tgt_means[ctrl_i]
@@ -111,7 +90,15 @@ def main() -> None:
             )
         ),
     )
-    print(json.dumps({"out": str(out), "n_conditions": len(conditions), "n_genes": int(source_delta.shape[1])}))
+    print(
+        json.dumps(
+            {
+                "out": str(out),
+                "n_conditions": len(conditions),
+                "n_genes": int(source_delta.shape[1]),
+            }
+        )
+    )
 
 
 if __name__ == "__main__":
