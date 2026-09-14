@@ -16,3 +16,7 @@
 8. Repo push、myserver 同步、pytest 作业、Day0 下载/解压 = **SCHE**；coding bot 只交代码 commit/patch。
 9. 用户说「停 / 暂停监控」→ 立刻停作业推进与例程监控，等明确恢复。
 10. 开干前读 `botenv/`；刷新上下文后仍以本目录为准，不以聊天摘要猜。
+
+## 跨场景 RL（K562↔RPE1）
+11. **跨场景第一版禁止碰 GeneTAK 118G / 恢复 deprep**，除非用户点名。v1 只用 VGAE 已落盘的 Replogle K562/RPE1 `perturb_processed.h5ad`；不下载新数据、不重启 Day0。
+

@@ -11,3 +11,6 @@
 | `STATUS.md` | 当前暂停点 / 待用户指示项（可变） |
 
 改约束时：先改这里，再同步到 myserver，必要时 commit。
+
+当前主线：**跨场景 RL（K562↔RPE1）**（见根目录 `docs/RL_CROSS_CONTEXT_TASK.md`）。C4 Day0 / anndata deprep 保持 paused。
+

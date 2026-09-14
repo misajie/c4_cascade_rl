@@ -13,6 +13,18 @@
 - 配置: `configs/server.yaml`（服务器绝对路径）
 - β 模型: `/public/home/jjtianhkuhpc1/mnt/models/Qwen/Qwen2.5-7B-Instruct`
 
+## Replogle / Norman（跨场景 RL；VGAE 已落盘）
+- K562 essential:
+  - `~/VGAE/data/replogle_k562_essential/perturb_processed.h5ad`
+  - `=/public/home/jjtianhkuhpc1/VGAE/data/replogle_k562_essential/perturb_processed.h5ad`
+- RPE1 essential:
+  - `~/VGAE/data/replogle_rpe1_essential/perturb_processed.h5ad`
+  - `=/public/home/jjtianhkuhpc1/VGAE/data/replogle_rpe1_essential/perturb_processed.h5ad`
+- Norman（后续，非 v1 必做）:
+  - `~/VGAE/data/norman19/perturb_processed.h5ad`
+  - `=/public/home/jjtianhkuhpc1/VGAE/data/norman19/perturb_processed.h5ad`
+- 跨场景 RL 输出建议: `~/vcrl/c4_cascade_rl/runs/rl_cross_context/`
+
 ## venv
 - `source ~/venv/bin/activate`
 - `export PYTHONNOUSERSITE=1`

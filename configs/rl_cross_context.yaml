@@ -1,0 +1,30 @@
+# Cross-context RL (K562 ↔ RPE1) — v1 synthetic-friendly defaults
+seed: 0
+source_context: k562
+target_context: rpe1
+n_genes: 32
+n_conditions: 40
+budgets: [5, 10, 20, 40]
+train_frac: 0.8
+val_frac: 0.1
+test_frac: 0.1
+acquisition_frac: 0.5
+audit_frac: 0.25
+cost_per_pert: 1.0
+ridge_alpha: 1.0
+dqn_hidden: 64
+dqn_lr: 0.001
+dqn_gamma: 0.99
+dqn_batch_size: 32
+dqn_buffer_size: 2000
+dqn_target_sync: 50
+dqn_episodes: 20
+dqn_eps_start: 1.0
+dqn_eps_end: 0.05
+dqn_eps_decay: 0.95
+output_dir: runs/rl_cross_context
+paths:
+  k562: ~/VGAE/data/replogle_k562_essential/perturb_processed.h5ad
+  rpe1: ~/VGAE/data/replogle_rpe1_essential/perturb_processed.h5ad
+  norman: ~/VGAE/data/norman19/perturb_processed.h5ad
+  output_dir: ~/vcrl/c4_cascade_rl/runs/rl_cross_context/
